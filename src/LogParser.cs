@@ -14,7 +14,7 @@ namespace HearthStoneWatcher
         private const string METHOD = "method";
         private const string MESSAGE = "message";
 
-        private static readonly Regex _regex = new Regex(@"^(?<mode>[DWE]) (?<timestamp>[\d:\.]+) (?<method>[a-zA-Z]+\.[a-zA-Z]+\(\))\s?[-:][\s]+(?<message>.+)$", RegexOptions.Compiled);
+        private static readonly Regex _regex = new Regex(@"^(?<mode>[DWE]) (?<timestamp>[\d:\.]+) (?<method>[a-zA-Z]+\.[a-zA-Z]+\(\))[ :-]+(?<message>.+)$", RegexOptions.Compiled);
         private readonly string[] _seperator;
         private readonly StringSplitOptions _options;
         public LogParser()

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using static HearthStoneWatcher.Config;
 
@@ -9,80 +10,68 @@ namespace HearthStoneWatcher
     public class LogWatcher
     {
         private readonly LogParser _logParser;
-        private readonly FileSystemWatcher _watcher;
-        private bool _isBusy;
+        private readonly string _path;
         private long _currentSize;
-        private string _buffer;
+        private Task _watchTask;
+        private bool _run;
 
-        public LogWatcher(string path, string filter)
+        public LogWatcher(string path)
         {
             _logParser = new LogParser();
+            _path = path;
             LogLineQueue = new ConcurrentQueue<LogLine>();
-            _watcher = new FileSystemWatcher(path, filter)
-            {
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size
-            };
-            _watcher.Changed += async (s, e) => await OnChanged(s, e);
-            _buffer = string.Empty;
         }
 
         public ConcurrentQueue<LogLine> LogLineQueue { get; }
 
-        protected Task OnChanged(object sender, FileSystemEventArgs e)
+        protected async Task WatchTask(int timeout)
         {
-            if(_isBusy) return Task.CompletedTask;
-
-            Stop();
-
-            var newSize = new FileInfo(e.FullPath).Length;
-
-            if(_currentSize >= newSize) return Task.CompletedTask;
-
-            using (var stream = File.Open(e.FullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            using (var sr = new StreamReader(stream))
+            while(_run)
             {
-                sr.BaseStream.Seek(_currentSize, SeekOrigin.Begin);         
-                var newData = _buffer + sr.ReadToEnd();         
-                if (!newData.EndsWith(DELIMITER))
-                {
-                    if (newData.IndexOf(DELIMITER) == -1)
-                    {
-                        _buffer += newData;
-                        newData = string.Empty;
-                    }
-                    else
-                    {
-                        var pos = newData.LastIndexOf(DELIMITER) + DELIMITER.Length;
-                        _buffer = newData.Substring(pos);
-                        newData = newData.Substring(0, pos);
-                    }
-                }
+                await Task.Delay(timeout);
 
-                var lines = _logParser.Parse(newData);
-                foreach (var line in lines)
-                {
-                    LogLineQueue.Enqueue(line);
-                }         
-            }           
-            _currentSize = newSize;
-            
-            Watch();
+                if (!File.Exists(_path)) continue;
 
-            return Task.CompletedTask;
+                var newSize = new FileInfo(_path).Length;
+
+                if(_currentSize >= newSize) continue;
+
+                using (var stream = File.Open(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var sr = new StreamReader(stream))
+                {
+                    sr.BaseStream.Seek(_currentSize, SeekOrigin.Begin);         
+                    var newData = sr.ReadToEnd();         
+
+                    var lines = _logParser.Parse(newData);
+                    foreach (var line in lines)
+                    {
+                        LogLineQueue.Enqueue(line);
+                    }         
+                }           
+                _currentSize = newSize;
+            }
+            return;
+        }
+
+        public Task Watch(int timeout = 250)
+        {
+            if(_watchTask is not null && (_watchTask.Status is TaskStatus.Running || _watchTask.Status is TaskStatus.WaitingToRun))
+                return _watchTask;
+
+            _run = true;
+            if (File.Exists(_path)) _currentSize = new FileInfo(_path).Length;
+            return _watchTask = WatchTask(timeout);
         }
 
         public void Stop()
         {
-            _isBusy = true;
-            _watcher.EnableRaisingEvents = false;
+            if(_watchTask == null) return;
+
+            _run = false;
+            _watchTask.Wait();
+            _watchTask.Dispose();
+            _watchTask = null;
+            return;
         }
-
-        public void Watch()
-        {
-            _isBusy = false;
-            _watcher.EnableRaisingEvents = true;
-        }
-
-
     }
 }

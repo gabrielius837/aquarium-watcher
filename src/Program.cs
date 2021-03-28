@@ -1,30 +1,36 @@
 ﻿using System;
 using System.Threading;
+using System.Threading.Tasks;
 using static HearthStoneWatcher.Config;
 
 namespace HearthStoneWatcher
 {
     class Program
     {
-        static void Main(string[] args)
+        static int Main(string[] args)
         {
-            var watcher = new LogWatcher(PATH, FILE);
+            var watcher = new LogWatcher(PATH);
 
-            watcher.Watch();
+            var task = watcher.Watch();
 
-            while(true)
+            while(task.Status is not TaskStatus.RanToCompletion)
             {
-                if(watcher.LogLineQueue.TryDequeue(out LogLine line) && line.Method == OPTION_METHOD)
-                    Console.WriteLine(line.ToString());
-
-                if(Console.KeyAvailable && Console.ReadKey().Key == ConsoleKey.S)
+                if(!watcher.LogLineQueue.IsEmpty)
                 {
-                    watcher.Stop();
-                    break;
+                    while(watcher.LogLineQueue.TryDequeue(out LogLine line))
+                    {
+                        if(line.Method == OPTION_METHOD)
+                            Console.WriteLine(line.ToString());
+                    }
                 }
 
-                Thread.Sleep(100);
+                if(Console.KeyAvailable && Console.ReadKey().Key == ConsoleKey.S)
+                    watcher.Stop();
+
+                Thread.Sleep(250);
             }
+            
+            return 0;
         }
     }
 }
